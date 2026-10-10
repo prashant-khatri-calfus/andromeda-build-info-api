@@ -1,0 +1,17 @@
+project_id  = "my-gcp-project"
+region      = "asia-south1"
+environment = "dev"
+
+# Your workstation/VPN egress IP, if you want the IP endpoint too.
+# kubectl via --dns-endpoint works without this.
+admin_cidrs = [
+  # { cidr_block = "203.0.113.10/32", display_name = "home" },
+]
+
+# Flip to true after installing the Cloud Build GitHub App on the repo.
+create_build_trigger = false
+github_owner         = "your-github-user"
+github_repo          = "build-info-api"
+
+# Demo environment: allow `terraform destroy`.
+deletion_protection = false
