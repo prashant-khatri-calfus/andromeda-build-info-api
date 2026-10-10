@@ -14,7 +14,7 @@ production service.
 - *Where does "build information" come from?* Three options:
   1. Computed at runtime (e.g. reading `.git`) – wrong: the image shouldn't contain `.git`, and runtime ≠ build.
   2. Injected at deploy time (ConfigMap/env in the manifest) – drifts: someone can change the manifest without changing the image.
-  3. **Baked in at build time** (Docker `ARG` → `ENV` + OCI labels) – the image *is* the source of truth; a given digest always reports the same commit. ✅
+  3. **Baked in at build time** (Docker `ARG` → `ENV`) – the image *is* the source of truth; a given digest always reports the same commit. ✅
 - Runtime facts (pod, namespace, node) come from the **Downward API**, so the response also shows *which replica* answered – useful for proving load balancing and rollouts.
 - Response has a **JSON schema** → Fastify validates and serialises output (fast-json-stringify) and the contract is explicit. Unknown fields can never leak into the response.
 - Missing/blank metadata degrades to `"unknown"` instead of erroring – the endpoint must never fail just because a build arg wasn't passed (e.g. local runs).
@@ -30,13 +30,16 @@ production service.
 
 ## 2. Container image
 
-- **Multi-stage** build: `npm ci --omit=dev --ignore-scripts` from the lockfile in a deps stage; only production `node_modules` + `src/` copied into the runtime stage (no dev deps, no npm cache, no tests).
-- **Non-root** (UID 10001), works with `readOnlyRootFilesystem` (a small `emptyDir` on `/tmp`).
-- Exec-form `CMD ["node", "src/server.js"]` (not `npm start`) so Node is PID 1 and receives `SIGTERM`; graceful shutdown timeout set below the pod's `terminationGracePeriodSeconds`.
-- OCI labels (`revision`, `version`, `created`) mean the same metadata is visible in Artifact Registry without running the image.
-- `package-lock.json` + `npm ci` for reproducible builds; `npm audit` gate in CI.
+Kept deliberately short (single stage, ~25 lines). Every line earns its place:
 
-*Next step:* distroless/Chainguard Node base (needs replacing the `sleep` preStop with the native `sleep` lifecycle action and the exec-based verify step), SBOM + provenance (SLSA) attestation.
+- `node:22-slim` – official LTS image, small Debian base.
+- `npm ci --omit=dev` from the lockfile → reproducible, production deps only. Copied **before** the source so the dependency layer stays cached when only code changes.
+- `ARG` → `ENV` for build info – this *is* the feature: the image carries its own commit/version.
+- `USER node` – the base image's built-in non-root user (uid 1000); the pod also enforces `runAsNonRoot` and a read-only root filesystem.
+- `CMD ["node", ...]`, not `npm start` – Node is PID 1 and gets `SIGTERM` for graceful shutdown.
+- `.dockerignore` keeps tests, docs, Terraform and `node_modules` out of the build context.
+
+*Consciously left out (would add for production):* multi-stage build (no compile step here, so little gain), OCI labels, distroless/Chainguard base, SBOM + provenance attestation.
 
 ## 3. Platform: GKE Autopilot
 

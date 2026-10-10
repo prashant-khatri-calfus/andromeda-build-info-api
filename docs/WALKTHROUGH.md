@@ -15,7 +15,7 @@ A ~20 minute storyline, a live demo script, and likely questions.
 |---|---|
 | `src/app.js` | build vs runtime info; Downward API; response JSON schema; liveness ≠ readiness; `"unknown"` fallback; Cloud Logging-friendly pino config |
 | `src/server.js` | SIGTERM → `app.close()` drains in-flight requests |
-| `Dockerfile` | multi-stage, `npm ci --omit=dev`, non-root, ARG→ENV + OCI labels, `node` as PID 1 (not `npm start`) |
+| `Dockerfile` | intentionally short: layer caching order, `npm ci --omit=dev`, ARG→ENV build info, `USER node`, `node` as PID 1 (not `npm start`) |
 | `k8s/base/deployment.yaml` | `maxUnavailable: 0`, probes, preStop, securityContext, zone spread |
 | `k8s/base/networkpolicy.yaml` | default deny incl. egress |
 | `k8s/base/service.yaml` | static IP by name, `loadBalancerSourceRanges` |
@@ -60,7 +60,7 @@ kubectl -n build-info get po -w
 
 **How do you roll back?** `kubectl rollout undo deployment/build-info-api` (instant, previous ReplicaSet) or re-run the Cloud Build for the previous commit (re-deploys that digest). With Cloud Deploy: one-click rollback to a previous release.
 
-**How do you know which version is in prod?** `GET /build-info` – and the pipeline asserts it. Also OCI labels on the image and the digest in the Deployment spec.
+**How do you know which version is in prod?** `GET /build-info` – and the pipeline asserts it. Also the image digest pinned in the Deployment spec.
 
 **Why deploy by digest?** Tags are mutable; a re-pushed tag could change what runs without a manifest change. Digest = content address = exactly the bytes that were tested and scanned. Also a prerequisite for Binary Authorization.
 

@@ -33,7 +33,7 @@ steps:
         npm test
         npm audit --omit=dev --audit-level=high
 
-  # 2. Build, baking build metadata into the image (env + OCI labels).
+  # 2. Build, baking build metadata into the image (as env vars).
   - id: build
     name: gcr.io/cloud-builders/docker
     entrypoint: bash

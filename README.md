@@ -57,7 +57,7 @@ flowchart LR
 | Layer | Choice |
 |---|---|
 | App | Node.js 22 LTS, Fastify (JSON-schema validated response, pino JSON logs), build info baked in at image build time |
-| Container | Multi-stage `node:22-slim`, `npm ci --omit=dev`, non-root UID 10001, read-only rootfs, OCI labels |
+| Container | Single-stage `node:22-slim`, `npm ci --omit=dev`, non-root `node` user, read-only rootfs in the pod |
 | Compute | GKE **Autopilot**, regional, private nodes, Release channel REGULAR |
 | Network | Custom VPC, VPC-native secondary ranges, Private Google Access, Cloud NAT |
 | Exposure | `Service type=LoadBalancer` (`loadBalancerClass: l4-regional-external`) → regional external passthrough NLB on a reserved static IP, `loadBalancerSourceRanges` allow-list |
@@ -78,7 +78,7 @@ Interview demo script and Q&A prep: **[docs/WALKTHROUGH.md](docs/WALKTHROUGH.md)
 src/app.js          Fastify app (routes, schema, logging)
 src/server.js       entrypoint: listen + graceful SIGTERM shutdown
 test/               node:test unit tests (no extra test framework)
-Dockerfile          multi-stage, non-root image
+Dockerfile          simple single-stage, non-root image
 cloudbuild.yaml     CI/CD pipeline
 k8s/base            Deployment, Service, HPA, PDB, NetworkPolicy, Namespace (PSA restricted)
 k8s/overlays/dev    environment-specific config
