@@ -1,0 +1,9 @@
+# Public demo endpoint. Tighten to office/VPN CIDRs for internal-only use, e.g.
+#   - 203.0.113.0/24
+apiVersion: v1
+kind: Service
+metadata:
+  name: build-info-api
+spec:
+  loadBalancerSourceRanges:
+    - 0.0.0.0/0

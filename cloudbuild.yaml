@@ -1,0 +1,119 @@
+# CI/CD: test -> build -> push -> deploy (by digest) -> verify.
+# Triggered on push to main (terraform/cloudbuild.tf) or manually via `make deploy`.
+
+substitutions:
+  _REGION: asia-south1
+  _CLUSTER: build-info-dev
+  _REPO: build-info-images
+  _ENVIRONMENT: dev
+  _IMAGE_NAME: build-info-api
+  # Populated automatically by a trigger; overridden by `make deploy` for manual runs.
+  _GIT_COMMIT: ${SHORT_SHA}
+  _GIT_BRANCH: ${BRANCH_NAME}
+
+options:
+  dynamic_substitutions: true
+  substitution_option: ALLOW_LOOSE
+  logging: CLOUD_LOGGING_ONLY # required when running as a user-managed SA
+  machineType: E2_HIGHCPU_8
+
+timeout: 1200s
+
+steps:
+  # 1. Unit tests + lint. Fail fast before anything is built.
+  - id: test
+    name: node:22-slim
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        set -euo pipefail
+        npm ci --no-audit --no-fund
+        npm run lint
+        npm test
+        npm audit --omit=dev --audit-level=high
+
+  # 2. Build, baking build metadata into the image (env + OCI labels).
+  - id: build
+    name: gcr.io/cloud-builders/docker
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        set -euo pipefail
+        IMAGE="${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_IMAGE_NAME}"
+        docker build \
+          --build-arg APP_VERSION="$$(cat VERSION)" \
+          --build-arg GIT_COMMIT="${_GIT_COMMIT}" \
+          --build-arg GIT_BRANCH="${_GIT_BRANCH}" \
+          --build-arg BUILD_TIME="$$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+          --build-arg BUILD_ID="${BUILD_ID}" \
+          -t "$${IMAGE}:${_GIT_COMMIT}" \
+          -t "$${IMAGE}:$$(cat VERSION)-${_GIT_COMMIT}" \
+          .
+
+  # 3. Push and record the immutable digest for deployment.
+  - id: push
+    name: gcr.io/cloud-builders/docker
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        set -euo pipefail
+        IMAGE="${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_IMAGE_NAME}"
+        docker push --all-tags "$${IMAGE}"
+        docker inspect --format='{{index .RepoDigests 0}}' "$${IMAGE}:${_GIT_COMMIT}" \
+          | cut -d@ -f2 > /workspace/digest.txt
+        echo "Pushed $${IMAGE}@$$(cat /workspace/digest.txt)"
+
+  # 4. Deploy the exact digest just built (tags are mutable; digests are not).
+  #    Connects through the cluster's IAM-authenticated DNS endpoint, so the
+  #    private cluster needs no public IP endpoint or private worker pool.
+  - id: deploy
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:stable
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        set -euo pipefail
+        IMAGE="${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_IMAGE_NAME}"
+        gcloud container clusters get-credentials "${_CLUSTER}" \
+          --region "${_REGION}" --project "${PROJECT_ID}" --dns-endpoint
+
+        cd "k8s/overlays/${_ENVIRONMENT}"
+        cat >> kustomization.yaml <<YAML
+        images:
+          - name: build-info-api
+            newName: $${IMAGE}
+            digest: $$(cat /workspace/digest.txt)
+        YAML
+
+        kubectl apply -k .
+        kubectl -n build-info rollout status deployment/build-info-api --timeout=300s
+
+  # 5. Post-deploy verification: the running pods must report THIS commit.
+  #    Rollout succeeds automatically = readiness passed; this proves the
+  #    *right* artifact is live.
+  - id: verify
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:stable
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        set -euo pipefail
+        gcloud container clusters get-credentials "${_CLUSTER}" \
+          --region "${_REGION}" --project "${PROJECT_ID}" --dns-endpoint
+        # Check every pod of the *current* ReplicaSet (not old, terminating ones).
+        HASH=$$(kubectl -n build-info get rs -l app.kubernetes.io/name=build-info-api \
+          --sort-by=.metadata.creationTimestamp \
+          -o jsonpath='{.items[-1:].metadata.labels.pod-template-hash}')
+        PODS=$$(kubectl -n build-info get pods -l "pod-template-hash=$${HASH}" \
+          --field-selector=status.phase=Running -o name)
+        for POD in $${PODS}; do
+          BODY=$$(kubectl -n build-info exec "$${POD}" -- node -e \
+            "fetch('http://127.0.0.1:8080/build-info').then(r=>r.text()).then(console.log)")
+          echo "$${POD}: $${BODY}"
+          echo "$${BODY}" | grep -q "\"git_commit\":\"${_GIT_COMMIT}\"" \
+            || { echo "$${POD} does not report commit ${_GIT_COMMIT}"; exit 1; }
+        done
+        echo "External endpoint: http://$$(kubectl -n build-info get svc build-info-api -o jsonpath='{.status.loadBalancer.ingress[0].ip}')/build-info"

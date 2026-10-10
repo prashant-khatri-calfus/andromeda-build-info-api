@@ -1,0 +1,22 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../base
+
+labels:
+  - pairs:
+      env: dev
+    includeSelectors: false
+
+# Hash-suffixed ConfigMap -> a config change triggers a rolling restart.
+configMapGenerator:
+  - name: build-info-api-config
+    behavior: merge
+    literals:
+      - ENVIRONMENT=dev
+
+patches:
+  - path: service-patch.yaml
+
+# NOTE: CI appends an `images:` block below pinning the exact image digest.

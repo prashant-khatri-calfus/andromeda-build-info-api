@@ -1,0 +1,25 @@
+# External passthrough Network Load Balancer (L4), regional.
+# Chosen for simplicity; see docs/DESIGN.md for the Gateway API / HTTPS upgrade path.
+apiVersion: v1
+kind: Service
+metadata:
+  name: build-info-api
+  annotations:
+    # Bind to the static IP reserved by Terraform (google_compute_address.api).
+    networking.gke.io/load-balancer-ip-addresses: build-info-api-ip
+spec:
+  type: LoadBalancer
+  # Backend-service based regional external NLB (required when binding a
+  # reserved IP by name via the annotation above; GKE >= 1.29). Immutable.
+  loadBalancerClass: networking.gke.io/l4-regional-external
+  selector:
+    app.kubernetes.io/name: build-info-api
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP
+  # Restricts who can reach the LB (enforced by GKE-managed VPC firewall rules).
+  # Overridden per environment in the overlay.
+  loadBalancerSourceRanges:
+    - 0.0.0.0/0

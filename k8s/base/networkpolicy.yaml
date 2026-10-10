@@ -1,0 +1,35 @@
+# Enforced by GKE Dataplane V2 (always on in Autopilot).
+# 1) Default-deny everything in the namespace.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+spec:
+  podSelector: {}
+  policyTypes: ["Ingress", "Egress"]
+---
+# 2) The API only accepts HTTP on 8080 (from the LB / clients) and may only
+#    resolve DNS. It has no outbound dependencies, so nothing else is allowed.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: build-info-api
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: build-info-api
+  policyTypes: ["Ingress", "Egress"]
+  ingress:
+    - ports:
+        - port: 8080
+          protocol: TCP
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
