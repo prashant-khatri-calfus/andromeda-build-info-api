@@ -1,0 +1,6 @@
+# Files NOT uploaded by `gcloud builds submit`
+.git
+.gitignore
+node_modules/
+terraform/.terraform/
+*.tfstate*

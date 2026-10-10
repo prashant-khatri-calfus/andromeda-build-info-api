@@ -1,0 +1,11 @@
+.git
+node_modules
+npm-debug.log
+test
+terraform
+k8s
+docs
+*.md
+cloudbuild.yaml
+eslint.config.js
+Makefile
