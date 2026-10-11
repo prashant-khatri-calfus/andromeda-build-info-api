@@ -70,7 +70,7 @@ variable "github_owner" {
 variable "github_repo" {
   description = "GitHub repository name."
   type        = string
-  default     = "build-info-api"
+  default     = "andromeda-build-info-api"
 }
 
 variable "deploy_branch_regex" {

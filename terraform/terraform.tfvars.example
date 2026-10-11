@@ -10,8 +10,8 @@ admin_cidrs = [
 
 # Flip to true after installing the Cloud Build GitHub App on the repo.
 create_build_trigger = false
-github_owner         = "your-github-user"
-github_repo          = "build-info-api"
+github_owner         = "prashant-khatri-calfus"
+github_repo          = "andromeda-build-info-api"
 
 # Demo environment: allow `terraform destroy`.
 deletion_protection = false
