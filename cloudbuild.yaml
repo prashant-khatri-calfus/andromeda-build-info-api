@@ -93,9 +93,11 @@ steps:
         kubectl apply -k .
         kubectl -n build-info rollout status deployment/build-info-api --timeout=300s
 
-  # 5. Post-deploy verification: the running pods must report THIS commit.
-  #    Rollout succeeds automatically = readiness passed; this proves the
-  #    *right* artifact is live.
+  # 5. Post-deploy verification through the PUBLIC endpoint (what users see):
+  #    the load balancer must consistently serve THIS commit. Rollout success only
+  #    proves pods are healthy; this proves the right artifact is live end to end.
+  #    (Uses the LB rather than `kubectl exec`, which depends on the control-plane
+  #    tunnel to brand-new Autopilot nodes and can fail right after scale-up.)
   - id: verify
     # ":latest" is the full image with kubectl + gke-gcloud-auth-plugin
     # (":stable" ships gcloud only). Pin a version tag for production.
@@ -107,17 +109,33 @@ steps:
         set -euo pipefail
         gcloud container clusters get-credentials "${_CLUSTER}" \
           --region "${_REGION}" --project "${PROJECT_ID}" --dns-endpoint
-        # Check every pod of the *current* ReplicaSet (not old, terminating ones).
-        HASH=$$(kubectl -n build-info get rs -l app.kubernetes.io/name=build-info-api \
-          --sort-by=.metadata.creationTimestamp \
-          -o jsonpath='{.items[-1:].metadata.labels.pod-template-hash}')
-        PODS=$$(kubectl -n build-info get pods -l "pod-template-hash=$${HASH}" \
-          --field-selector=status.phase=Running -o name)
-        for POD in $${PODS}; do
-          BODY=$$(kubectl -n build-info exec "$${POD}" -- node -e \
-            "fetch('http://127.0.0.1:8080/build-info').then(r=>r.text()).then(console.log)")
-          echo "$${POD}: $${BODY}"
-          echo "$${BODY}" | grep -q "\"git_commit\":\"${_GIT_COMMIT}\"" \
-            || { echo "$${POD} does not report commit ${_GIT_COMMIT}"; exit 1; }
+
+        IP=""
+        for i in $$(seq 1 30); do
+          IP=$$(kubectl -n build-info get svc build-info-api \
+            -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+          [ -n "$${IP}" ] && break
+          echo "waiting for external IP..."; sleep 10
         done
-        echo "External endpoint: http://$$(kubectl -n build-info get svc build-info-api -o jsonpath='{.status.loadBalancer.ingress[0].ip}')/build-info"
+        [ -n "$${IP}" ] || { echo "Service has no external IP"; exit 1; }
+        URL="http://$${IP}/build-info"
+
+        # Require 5 consecutive responses with this commit (LB may need a minute
+        # on first deploy; old pods drain during this window).
+        OK=0; BODY=""
+        for i in $$(seq 1 60); do
+          BODY=$$(curl -fsS --max-time 5 "$${URL}" || true)
+          if echo "$${BODY}" | grep -q "\"git_commit\":\"${_GIT_COMMIT}\""; then
+            OK=$$((OK + 1))
+          else
+            OK=0
+          fi
+          if [ "$${OK}" -ge 5 ]; then
+            echo "Verified: $${URL} serves commit ${_GIT_COMMIT}"
+            echo "$${BODY}"
+            exit 0
+          fi
+          sleep 5
+        done
+        echo "Endpoint did not consistently report ${_GIT_COMMIT}. Last response: $${BODY}"
+        exit 1
