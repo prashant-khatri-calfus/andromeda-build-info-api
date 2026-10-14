@@ -70,14 +70,14 @@ steps:
   #    Connects through the cluster's IAM-authenticated DNS endpoint, so the
   #    private cluster needs no public IP endpoint or private worker pool.
   - id: deploy
-    name: gcr.io/google.com/cloudsdktool/cloud-sdk:stable
+    # ":latest" is the full image with kubectl + gke-gcloud-auth-plugin
+    # (":stable" ships gcloud only). Pin a version tag for production.
+    name: gcr.io/google.com/cloudsdktool/google-cloud-cli:latest
     entrypoint: bash
     args:
       - -c
       - |
         set -euo pipefail
-        # cloud-sdk:stable ships gcloud only; add kubectl + the GKE auth plugin.
-        gcloud components install kubectl gke-gcloud-auth-plugin --quiet
         IMAGE="${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_IMAGE_NAME}"
         gcloud container clusters get-credentials "${_CLUSTER}" \
           --region "${_REGION}" --project "${PROJECT_ID}" --dns-endpoint
@@ -97,13 +97,14 @@ steps:
   #    Rollout succeeds automatically = readiness passed; this proves the
   #    *right* artifact is live.
   - id: verify
-    name: gcr.io/google.com/cloudsdktool/cloud-sdk:stable
+    # ":latest" is the full image with kubectl + gke-gcloud-auth-plugin
+    # (":stable" ships gcloud only). Pin a version tag for production.
+    name: gcr.io/google.com/cloudsdktool/google-cloud-cli:latest
     entrypoint: bash
     args:
       - -c
       - |
         set -euo pipefail
-        gcloud components install kubectl gke-gcloud-auth-plugin --quiet
         gcloud container clusters get-credentials "${_CLUSTER}" \
           --region "${_REGION}" --project "${PROJECT_ID}" --dns-endpoint
         # Check every pod of the *current* ReplicaSet (not old, terminating ones).
