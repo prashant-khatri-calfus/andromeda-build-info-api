@@ -8,6 +8,7 @@ locals {
   cloudbuild_project_roles = [
     "roles/logging.logWriter",   # write build logs
     "roles/container.developer", # get-credentials + apply workloads (incl. clusters.connect for DNS endpoint)
+    "roles/storage.objectViewer", # read uploaded source from gs://<project>_cloudbuild on `gcloud builds submit`
   ]
 }
 
