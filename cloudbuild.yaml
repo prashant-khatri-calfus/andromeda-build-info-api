@@ -76,6 +76,9 @@ steps:
       - -c
       - |
         set -euo pipefail
+        # The cloud-sdk image no longer bundles kubectl; install it + the GKE auth plugin.
+        apt-get -qq update >/dev/null
+        apt-get -qq install -y kubectl google-cloud-cli-gke-gcloud-auth-plugin >/dev/null
         IMAGE="${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_IMAGE_NAME}"
         gcloud container clusters get-credentials "${_CLUSTER}" \
           --region "${_REGION}" --project "${PROJECT_ID}" --dns-endpoint
@@ -101,6 +104,8 @@ steps:
       - -c
       - |
         set -euo pipefail
+        apt-get -qq update >/dev/null
+        apt-get -qq install -y kubectl google-cloud-cli-gke-gcloud-auth-plugin >/dev/null
         gcloud container clusters get-credentials "${_CLUSTER}" \
           --region "${_REGION}" --project "${PROJECT_ID}" --dns-endpoint
         # Check every pod of the *current* ReplicaSet (not old, terminating ones).
